@@ -185,9 +185,23 @@ float controllerToServo(int controllerValue) {//1900-1300
   return servoValue;
 }
 
-//==== AUTOMATIC CONTROL ====
+float servoDegreeToMicro(int degree) { //maps degree [centered at 90] to a specific micro value to be more accurate [NEEDS IMPLEMENTATION]
+  return degree;
+}
 
-// will probably not have to use PID??? Needs testing
+//==== AUTOMATIC CONTROL ====//
+struct corrections {
+  int servoDegree; //centered at 90 degrees
+  int thrustPower; //0-255
+};
+
+bool isControllerInUse() { //determines if the controller is in use, as if so the automatic correction should not happen [NEEDS IMPLEMENTATION]
+  return true;
+}
+
+
+
+
 void findCorrections() {  // find how much we need to move in a direction to correct heading
   
   
@@ -202,7 +216,7 @@ void correctiveMeasures() { // figure out what we should set servoPos/motor powe
   
 }
 
-// ==========================
+//===== MAIN BODY CODE =====//
 
 void setup() {
   pinMode(clyPin, INPUT);
@@ -232,17 +246,22 @@ void loop() {
     set_timer_value(LIGHT, 500);
   }
 
-  //motor control
+  //get sensor values
   if (sensorStatus == 1) {
     getPitchAndRoll();
     getHeading();
-    analogWrite(liftMotorPin, controllerToMotor(getControllerCly()));
-    analogWrite(thrustMotorPin, controllerToMotor(getControllerCry()));
-    rudderServo.write(controllerToServo(getControllerCrx()));
   } else {
-    Serial.print("sensors are broken\n"); //lolol
+    Serial.print("sensors are broken\n");
+  }
+  
+  //automatic or manual control
+  if(controllerInUse()) { //if controller in use then only do manual
     analogWrite(liftMotorPin, controllerToMotor(getControllerCly()));
     analogWrite(thrustMotorPin, controllerToMotor(getControllerCry()));
-    rudderServo.write(controllerToServo(getControllerCrx()));
+    rudderServo.write(servoDegreeToMicro(controllerToServo(getControllerCrx())));
+  } else { //otherwise do automatic adjustment
+    findCorrections();
+    correctiveMeasures();
   }
+  
 }
