@@ -26,7 +26,7 @@ const int clyPin = 4; //ch3
 const int crxPin = 3; //ch2
 const int cryPin = 2; //ch1
 //int clyValue; // (1830 max, 920 min, 0 is 0)
-
+// controller right x-axis , left 1270, middle/default 1670, right 205090
 Servo rudderServo;
 int servoPos = 0;
 
@@ -137,22 +137,23 @@ struct controls getControllerAll() {
   return values;
 }
 
-int getControllerCly() {
-  int clyValue = pulseIn(clyPin, HIGH);
-  Serial.print("clyValue = ");Serial.print(clyValue);Serial.print("\n");
-  return clyValue;
-}
+int getController(const int pinNum) {
+  int readValue = pulseIn(pinNum, HIGH);
 
-int getControllerCrx() {
-  int crxValue = pulseIn(crxPin, HIGH);
-  Serial.print("crxValue = ");Serial.print(crxValue);Serial.print("\n");
-  return crxValue;
-}
-
-int getControllerCry() {
-  int cryValue = pulseIn(cryPin, HIGH);
-  Serial.print("cryValue = ");Serial.print(cryValue);Serial.print("\n");
-  return cryValue;
+  switch (pinNum) {
+    case clyPin:
+      Serial.print("clyValue = ");
+      break;
+    case crxPin:
+      Serial.print("crxValue = ");
+      break;
+    case cryPin:
+      Serial.print("cryValue = ");
+      break;
+    }
+  
+  Serial.print(readValue);Serial.print("\n");
+    return readValue;
 }
 
 float controllerToMotor(int controllerValue) {
@@ -164,20 +165,19 @@ float controllerToMotor(int controllerValue) {
   if (motorValue <= 5) motorValue = 0;
   if (motorValue >= 255) motorValue = 255;
   
-  Serial.print("Motor Value: ");
-  Serial.print(motorValue);
-  Serial.print("\n");
+  //Serial.print("Motor Value: ");
+  //Serial.print(motorValue);
+  //Serial.print("\n");
   return motorValue;
 }
 
-float controllerToServo(int controllerValue) {//1900-1300
+ float controllerToServo(int controllerValue) {//1900-1300
   /*The function to relate controller value to motor value is:
   f(x) = 1.80136 * 1.00271 ^ (x) - 1.80135 where x is the inputted controller value*/
-  
-  int servoValue = ((float)controllerValue) * 2.0f/11.0f - 1800.0f/11.0f;
+  int servoValue = (0.0512708 * controllerValue) + 4.71954;
 
-  if (servoValue <= 55) servoValue = 50;
-  if (servoValue >= 130) servoValue = 130;
+  if (servoValue <= 80) {servoValue = 80;}
+  if (servoValue >= 110) {servoValue = 110;}
   
   Serial.print("Servo Value: ");
   Serial.print(servoValue);
@@ -236,13 +236,13 @@ void loop() {
   if (sensorStatus == 1) {
     getPitchAndRoll();
     getHeading();
-    analogWrite(liftMotorPin, controllerToMotor(getControllerCly()));
-    analogWrite(thrustMotorPin, controllerToMotor(getControllerCry()));
-    rudderServo.write(controllerToServo(getControllerCrx()));
+    analogWrite(liftMotorPin, controllerToMotor(getController(clyPin)));
+    analogWrite(thrustMotorPin, controllerToMotor(getController(cryPin)));
+    rudderServo.write(controllerToServo(getController(cryPin)));
   } else {
     Serial.print("sensors are broken\n"); //lolol
-    analogWrite(liftMotorPin, controllerToMotor(getControllerCly()));
-    analogWrite(thrustMotorPin, controllerToMotor(getControllerCry()));
-    rudderServo.write(controllerToServo(getControllerCrx()));
+    analogWrite(liftMotorPin, controllerToMotor(getController(clyPin)));
+    analogWrite(thrustMotorPin, controllerToMotor(getController(cryPin)));
+    rudderServo.write(controllerToServo(getController(cryPin)));
   }
 }
