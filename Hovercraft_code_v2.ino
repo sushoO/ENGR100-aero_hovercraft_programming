@@ -41,12 +41,23 @@ const int timersLength=100;
 
 long timers[timersLength];
 const int LIGHT = 0;
+const int HEADING = 1;
 bool lighton=false;
 
-  sensors_event_t accel_event;
-  sensors_event_t mag_event;
-  sensors_event_t bmp_event;
-  sensors_vec_t   orientation;
+int lastHeading=0;
+long lastMeasurement=0;
+int targetHeading=0;
+int cumError=0;
+
+//these values will be determined via trial and error
+const float proportionalCoefficient = 1.0f;
+const float integralCoefficient = 0.5f;
+const float derivativeCoefficient = 0.2f;
+
+sensors_event_t accel_event;
+sensors_event_t mag_event;
+sensors_event_t bmp_event;
+sensors_vec_t   orientation;
 
 Adafruit_10DOF                dof   = Adafruit_10DOF();
 Adafruit_LSM303_Accel_Unified accel = Adafruit_LSM303_Accel_Unified(30301);
@@ -190,10 +201,12 @@ float servoDegreeToMicro(int degree) { //maps degree [centered at 90] to a speci
 }
 
 //==== AUTOMATIC CONTROL ====//
-struct corrections {
+struct actuators { //to store changes and the current state of our actuators
   int servoDegree; //centered at 90 degrees
   int thrustPower; //0-255
 };
+
+actuators currentActuators = {.servoDegree = 90, .thrustPower = 0};
 
 bool isControllerInUse() { //determines if the controller is in use, as if so the automatic correction should not happen [NEEDS IMPLEMENTATION]
   return true;
@@ -202,18 +215,54 @@ bool isControllerInUse() { //determines if the controller is in use, as if so th
 
 
 
-void findCorrections() {  // find how much we need to move in a direction to correct heading
+struct actuators findCorrections() {  // find how much we need to move in a direction to correct heading
+  actuators values = {.servoDegree = 0, .thrustPower = 0}; //this isn't the actual values but rather how we are changing them
+
+  //get differences
+  long deltaTime = millis()-lastTime;
+  int deltaHeading = orientation.Heading-lastHeading;
+  int err = targetHeading - orientation.Heading;
+
+  //get components
+  float proportionalComponent = err; //works to minimize current error
+  float integralComponent = err==0?0:cumError; //works to minimize total error (if its already 0 though its perfect)
+  float derivativeComponent = -deltaHeading/deltaTime; //works to minimize rapid changes
+
+  //use components to determine corrections
+  float change = proportionalComponent*proportionalCoefficient + integralComponent*integralCoefficient + derivativeComponent*derivativeCoefficient; //sums all of them with their experimentally determined coefficients
+  change = 2.0f/(1+pow(2.718281828459f,-change)) - 1.0f; //applies a mapping function to get between -1 and 1 for ease of use.
+  values.thrustPower = (int) round(abs(change) * 6.0f - 1.0f); // thrust changes from -1 to 5 depending on how big the change is, reason being is that for bigger changes we want to go faster so that the bearing can work, otherwise we can start to slow down
+  values.servoDegree = (int) round(change*2); // servo changes from -2 to 2 degrees at a time
+
+  //since we want the rate of change to be independent of how many times this algorithm runs we multiply it by delta time and apply a scaling term, the scaling term of 100.0f means this is equivalent to running every 100ms (since we use time in ms)
+  values.thrustPower = (int) round(deltaTime*values.thrustPower/100.0f);
+  values.servoDegree = (int) round(deltaTime*values.servoDegree/100.0f);
   
-  
-  
-  
+  return values;
 }
   
-void correctiveMeasures() { // figure out what we should set servoPos/motor power to in order to fix heading
+void correctiveMeasures(struct actuators corrections) { // figure out what we should set servoPos/motor power to in order to fix heading
+   currentActuators.thrustPower += corrections.thrustPower;
+   currentActuators.servoDegree += corrections.servoDegree;
+  //enforce bounds
+   if(currentActuators.thrustPower > 255) currentActuators.thrustPower = 255;
+   else if(currentActuators.thrustPower < 0) currentActuators.thrustPower = 0;
+   if(currentActuators.servoDegree > 140) currentActuators.thrustPower = 140;
+   else if(currentActuators.servoDegree < 40) currentActuators.thrustPower = 40;
+   analogWrite(thrustMotorPin, currentActuators.thrustPower);
+   rudderServo.write(servoDegreeToMicro(currentActuators.servoDegree));
+}
 
-  
-  
-  
+void updateMeasure() { //updates some internal measurements
+  lastHeading = orientation.heading;
+  lastMeasurement = millis();
+  int err = targetHeading - orientation.Heading;
+  cumError += err;
+}
+
+void setTargetHeading(int heading) {
+  cumError=0;
+  targetheading=heading;
 }
 
 //===== MAIN BODY CODE =====//
@@ -228,6 +277,8 @@ void setup() {
   sensorStatus = initSensors();
   add_timer_value(LIGHT);
   set_timer_value(LIGHT, 500);
+  add_timer_value(HEADING);
+  set_timer_value(HEADING, 2000);
   pinMode(13, OUTPUT);
 }
 
@@ -246,6 +297,13 @@ void loop() {
     set_timer_value(LIGHT, 500);
   }
 
+  //test heading code
+  if(check_timer(HEADING)) {
+    //change heading
+    setTargetHeading((targetHeading+60)%360);
+    set_timer_value(HEADING, 2000);
+  }
+
   //get sensor values
   if (sensorStatus == 1) {
     getPitchAndRoll();
@@ -260,8 +318,8 @@ void loop() {
     analogWrite(thrustMotorPin, controllerToMotor(getControllerCry()));
     rudderServo.write(servoDegreeToMicro(controllerToServo(getControllerCrx())));
   } else { //otherwise do automatic adjustment
-    findCorrections();
-    correctiveMeasures();
+    if(lastMeasurement!=0) correctiveMeasures(findCorrections());
+    updateMeasure();
   }
   
 }
